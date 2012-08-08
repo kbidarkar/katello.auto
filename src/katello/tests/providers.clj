@@ -107,18 +107,35 @@
 
 (defgroup gpg-key-tests
 
-  (deftest "Create new GPG keys test"
-    :blocked-by (open-bz-bugs "835902")
+  (deftest "Create a new GPG key from text input"
+    (with-unique [test-key "test-key-text"]
+      (create-gpg-key test-key {:contents "asdfasdfasdfasdfasdfasdfasdf"})))
+  
+  (deftest "Create a new GPG key from file"
+    :blockers (open-bz-bugs "835902" "846432")
 
     (with-unique [test-key "test-key"]
       (spit "output.txt" "test")
-      (katello.ui-tasks/create-gpg-key test-key {:filename tmpfile})))
-      
-  (deftest "Delete existing GPG key" 
-    (with-unique [test-key "test-key"]
-      (spit "output.txt" "test")
-      (katello.ui-tasks/create-gpg-key test-key {:filename tmpfile})
-      (katello.ui-tasks/remove-gpg-key test-key))))
+      (create-gpg-key test-key {:filename tmpfile}))
+
+    
+    (deftest "Delete existing GPG key" 
+      (with-unique [test-key "test-key"]
+        (spit "output.txt" "test")
+        (create-gpg-key test-key {:filename tmpfile})
+        (remove-gpg-key test-key)))))
+
+
+(defgroup package-filter-tests
+
+  (deftest "Create new Package Filter test"
+    (with-unique [test-package-filter "test-package-filter"]
+      (katello.ui-tasks/create-package-filter test-package-filter {:description "Test filter"}))
+    
+    (deftest "Delete existing Package Filter test" 
+      (with-unique [test-package-filter "test-package-filter"]
+        (katello.ui-tasks/create-package-filter test-package-filter {:description "Test filter"})
+        (katello.ui-tasks/remove-package-filter test-package-filter)))))
 
 
 (defgroup provider-tests
@@ -164,6 +181,7 @@
   
   redhat-content-provider-tests
   gpg-key-tests
+  package-filter-tests
   redhat-provider-one-org-multiple-manifest-tests
   redhat-provider-second-org-one-manifest-tests
   redhat-provider-used-manifest-tests

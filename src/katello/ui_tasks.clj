@@ -10,7 +10,8 @@
         [katello.api-tasks :only [when-katello when-headpin]]
         [slingshot.slingshot :only [throw+ try+]]
         [tools.verify :only [verify-that]]
-        [clojure.string :only [capitalize]])
+        [clojure.string :only [capitalize]]
+        [clojure.set :only [union]])
   (:import [com.thoughtworks.selenium SeleniumException]
            [java.text SimpleDateFormat]))
 
@@ -55,17 +56,17 @@
 
 (defn matching-errors
   "Returns a set of matching known errors"
-  [m]
+  [notifSet]
   (->> known-errors
-     (filter (fn [[_ v]] (re-find v (:msg m))))
+     (filter (fn [[_ v]] (some not-empty (for [msg (map :msg notifSet)] (re-find v msg)))))
      (map key)
      set))
 
 (defn- clear-all-notifications []
-  (doseq [closebutton (map (comp locators/notification-close-index str)
-                           (iterate inc 1))
-          :while (browser isElementPresent closebutton)]
-    (browser click closebutton)))
+  (try
+    (doseq [i (iterate inc 1)]
+      (browser click (locators/notification-close-index (str i))))
+    (catch SeleniumException _ nil)))
 
 (def success?
   "Returns true if the given notification is a 'success' type
@@ -73,29 +74,45 @@
   ^{:type :serializable.fn/serializable-fn
     :serializable.fn/source 'success?}
   (fn [notif]
-    (-> notif :type (= :success))))
+    (and notif (-> notif :type (= :success)))))
 
-(defn notification
-  "Gets the notification from the page, returns a map object
-   representing the notification (or nil if no notification is present
-   within the optional timeout period). Default timeout is 15
-   seconds."
+(defn wait-for-notification-gone
+  "Waits for a notification to disappear within the timeout period. If no
+   notification is present, the function returns immediately. The default
+   timeout is 3 seconds."
   [ & [max-wait-ms]]
-  (try (browser waitForElement :notification (str (or max-wait-ms 15000)))
-       (let [msg (browser getText :notification)
-             classattr ((into {} (browser getAttributes :notification)) "class")
-             type (-> classattr
-                     (string/split #" ")
-                     second
-                     {"jnotify-notification-error" :error
-                      "jnotify-notification-message" :message
-                      "jnotify-notification-success" :success})]
-         (clear-all-notifications)
-         {:type type :msg msg})
-       (catch SeleniumException e nil)))
+  (loop-with-timeout (or max-wait-ms 3000) []
+    (if ( browser isElementPresent :notification)
+      (do (Thread/sleep 100) (recur)))
+    (throw+ {:type :wait-for-notification-gone-timeout} 
+            "Notification did not disappear within the specified timeout")))
+
+
+
+(defn notifications
+  "Gets all notifications from the page, returns a list of maps
+   representing the notifications. Waits for timeout-ms for at least
+   one notification to appear. Does not do any extra waiting after the
+   first notification is detected. Clears all the notifications from
+   the UI. Default timeout is 15 seconds."
+  [ & [{:keys [timeout-ms] :or {timeout-ms 2000}}]]
+  (try
+    (browser waitForElement :notification (str timeout-ms))
+    (let [notif-at-index (fn [idx]
+                           (let [notif (locators/notification-index (str idx))]
+                             (when (browser isElementPresent notif)
+                               (let [msg (browser getText notif)
+                                     classattr ((into {}
+                                                       (browser getAttributes notif))
+                                                "class")
+                                     type (->> classattr (re-find #"jnotify-notification-(\w+)") second keyword)]
+                                 {:type type :msg msg}))))]
+      (doall (take-while identity (map notif-at-index (iterate inc 1)))))
+    (catch SeleniumException e '())
+    (finally (clear-all-notifications))))
 
 (defn errtype
-  "creates a predicate that matches a caught UI error of the given
+  "Creates a predicate that matches a caught UI error of the given
    type (see known-errors). Use this predicate in a slingshot 'catch'
    statement. If any of the error types match (in case of multiple
    validation errors), the predicate will return true. Uses isa? for
@@ -108,30 +125,43 @@
      :serializable.fn/source `(errtype ~t)}) )
 
 (defn check-for-success
-  "Gets any notification from the UI, if there is none, or it's not a
-   success notification, raise an exception. Otherwise return the type
-   and text of the message. Takes an optional max amount of time to
-   wait, in ms."
-  [ & [max-wait-ms]]
-  (let [notif (notification max-wait-ms)]
-    (cond (not notif) (throw+ {:type ::no-success-message-error}
-                       "Expected a success notification, but none appeared within the timeout period.")
-          ((complement success?) notif) (throw+ {:types (matching-errors notif) :notification notif}  "UI Error: %s" (pr-str %))
-          :else notif)))
+  "Returns information about a success notification from the UI. Will
+   wait for a success notification until timeout occurs, collecting
+   any failure notifications captured in that time. If there are no
+   notifications or any failure notifications are captured, an
+   exception is thrown containing information about all captured
+   notifications (including a success notification if present).
+   Otherwise return the type and text of the message. Takes an
+   optional max amount of time to wait, in ms, and whether to refresh
+   the page periodically while waiting for a notification."
+  [ & [{:keys [timeout-ms refresh?] :or {timeout-ms 2000}}]]
+  (loop-with-timeout timeout-ms [error-notifs #{}]
+    (let [new-notifs (set (notifications
+                           {:timeout-ms (if refresh? 15000 timeout-ms)}))
+          error-notifs (union error-notifs (filter #(= (:type %) :error) new-notifs))] 
+      (if (and (not-empty new-notifs) (empty? error-notifs))
+        new-notifs 
+        (do (when refresh?
+              (browser refresh))
+            (recur error-notifs))))
+    (if (empty? error-notifs) 
+      (throw+ {:type ::no-success-message-error}
+              "Expected a success notification, but none appeared within the timeout period.")
+      (throw+ {:types (matching-errors error-notifs) :notifications error-notifs}))))
 
 (defn check-for-error
   "Waits for a notification up to the optional timeout (in ms), throws
   an exception if error notification appears."
-  [ & [timeout]]
-  (try+ (check-for-success timeout)
+  [ & [{:keys [timeout-ms] :as m}]]
+  (try+ (check-for-success m)
         (catch [:type ::no-success-message-error] _)))
 
 (defn verify-success
   "Calls task-fn and checks for a success message afterwards. If none
-  is found, or an error notification appears, throws an exception."
+   is found, or error notifications appear, throws an exception."
   [task-fn]
-  (let [notification (task-fn)]
-    (verify-that (success? notification))))
+  (let [notifications (task-fn)]
+    (verify-that (every? success? notifications))))
 
 (def ^{:doc "Navigates to a named location in the UI. The first
   argument should be a keyword for the place in the page tree to
@@ -195,13 +225,6 @@
     (browser sleep 5000)))  ;;sleep to wait for browser->server comms to update changeset
 ;;can't navigate away until that's done
 
-(defn- async-notification [& [timeout]]
-  (Thread/sleep 3000)
-  (loop-with-timeout (or timeout 180000) []
-    (or (notification)
-        (do (browser refresh)
-            (recur)))))
-
 (defn promote-changeset
   "Promotes the given changeset to its target environment. An optional
    timeout-ms key will specify how long to wait for the promotion to
@@ -234,7 +257,7 @@
               (recur (browser getText
                               (locators/changeset-status changeset-name))))))
       ;;wait for async success notif
-      (async-notification))))
+      (check-for-success {:timeout-ms 180000 :refresh? true}))))
 
 (defn promote-content
   "Promotes the given content from one environment to another. Example
@@ -300,8 +323,8 @@
 
 (defn create-organization
   "Creates an organization with the given name and optional description."
-  [name & [{:keys [description initial-env-name initial-env-description]}]]
-  (navigate :new-organization-page)
+  [name & [{:keys [description initial-env-name initial-env-description go-through-org-switcher]}]]
+  (navigate (if go-through-org-switcher :new-organization-page-via-org-switcher :new-organization-page))
   (fill-ajax-form {:org-name-text name
                    :org-description-text description
                    :org-initial-env-name-text initial-env-name
@@ -316,7 +339,8 @@
   (browser click :remove-organization)
   (browser click :confirmation-yes)
   (check-for-success) ;queueing success
-  (async-notification))  ;for actual delete
+  (wait-for-notification-gone)
+  (check-for-success {:timeout-ms 180000 :refresh? true})) ;for actual delete
 
 (defn create-environment
   "Creates an environment with the given name, and a map containing
@@ -346,31 +370,18 @@
    can be edited is the org's description."
   [org-name & {:keys [description]}]
   (navigate :named-organization-page {:org-name org-name})
-  (in-place-edit {:org-description-text-edit description})
+  (in-place-edit {:org-description-text description})
   (check-for-success))
 
 (defn edit-environment
   "Edits an environment with the given name. Also takes a map
    containing the name of the environment's organization, and optional
-   fields: a new name, a new description, and a new prior
-   environment."
-  [env-name {:keys [org-name new-name description prior]}]
+   fields: a new description."
+  [env-name {:keys [org-name description]}]
   (navigate :named-environment-page {:org-name org-name
                                      :env-name env-name})
-  (in-place-edit {:env-name-text-edit new-name
-                  :env-description-text-edit description
-                  :env-prior-select-edit prior})
+  (in-place-edit {:env-description-text description})
   (check-for-success))
-
-
-(defn environment-other-possible-priors
-  "Returns a set of priors that are selectable for the given
-   environment (will not include the currently selected prior)."
-  [org-name env-name]
-  (navigate :named-environment-page {:org-name org-name
-                                     :env-name env-name})
-  (activate-in-place :env-prior-select-edit)
-  (set (browser getSelectOptions :env-prior-select-edit)))
 
 (defn create-environment-path
   "Creates a path of environments in the given org. All the names in
@@ -462,27 +473,29 @@
   "Logs out the current user from the UI."
   []
   (when-not (logged-out?)
-    (browser clickAndWait :log-out)
-    (check-for-success)))
+    (browser clickAndWait :log-out)))
 
 (defn switch-org "Switch to the given organization in the UI."
   [org-name]
   (browser click :org-switcher)
   (browser clickAndWait (locators/org-switcher org-name)))
 
+(defn ensure-org "Switch to the given org if the UI shows we are not already there."
+  [org-name]
+  (when-not (-> (browser getText :org-switcher) (= org-name))
+    (switch-org org-name)))
+
 (defn login
   "Logs in a user to the UI with the given username and password. If
    any user is currently logged in, he will be logged out first."
   [username password & [org]]
-  (when (logged-in?)
-    (logout)
-    (Thread/sleep 3000))    ;wait for already-dismissed logout message
-                            ;to disappear
+  (when (logged-in?) (logout))
   (fill-ajax-form {:username-text username
                    :password-text password}
                   :log-in)
-  (check-for-success)
-  (switch-org (or org (@config :admin-org))))
+  (let [retVal (check-for-success)]
+    (switch-org (or org (@config :admin-org)))
+    retVal))
 
 (defn current-user
   "Returns the name of the currently logged in user, or nil if logged out."
@@ -500,15 +513,15 @@
 (defn create-user
   "Creates a user with the given name and properties."
   [username {:keys [password password-confirm email default-org default-env]}]
-  (navigate :users-tab)
+  (navigate :users-page)
   (browser click :new-user)
   (let [env-chooser (fn [env] (when env
                                (locators/select-environment-widget env)))]
-    (fill-ajax-form [:new-user-username-text username
-                     :new-user-password-text password
-                     :new-user-confirm-text (or password-confirm password)
-                     :new-user-email email
-                     :new-user-default-org default-org
+    (fill-ajax-form [:user-username-text username
+                     :user-password-text password
+                     :user-confirm-text (or password-confirm password)
+                     :user-email-text email
+                     :user-default-org default-org
                      env-chooser [default-env]]
                     :save-user))
   (check-for-success))
@@ -527,8 +540,8 @@
                     new-password new-password-confirm new-email]}]
   (navigate :named-user-page {:username username})
   (when new-password
-    (browser setText :change-password-text new-password)
-    (browser setText :confirm-password-text (or new-password-confirm new-password))
+    (browser setText :user-password-text new-password)
+    (browser setText :user-confirm-text (or new-password-confirm new-password))
 
     ;;hack alert - force the page to check the passwords (selenium
     ;;doesn't fire the event by itself
@@ -553,8 +566,16 @@
   is true, use criteria and save it as a favorite, and also execute
   the search."
   [entity-type & [{:keys [criteria scope with-favorite add-as-favorite]}]]
-  (navigate (entity-type {:users :users-tab 
-                          :organizations :manage-organizations-tab}))
+  (navigate (entity-type {:users :users-page 
+                          :organizations :manage-organizations-page
+                          :roles :roles-page
+                          :subscriptions :redhat-subscriptions-page
+                          :gpg-keys :gpg-keys-page
+                          :sync-plans :sync-plans-page
+                          :systems  :systems-all-page
+                          :system-groups :system-groups-page
+                          :activation-keys :activation-keys-page
+                          :changeset-promotion-history :changeset-promotion-history-page}))
   (if with-favorite
     (->browser (click :search-menu)
                (click (locators/search-favorite with-favorite)))
@@ -563,12 +584,12 @@
           (->browser (click :search-menu)
                      (click :search-save-as-favorite)))
         (browser click :search-submit)))
-  (check-for-error 2000))
+  (check-for-error {:timeout-ms 2000}))
 
 (defn create-role
   "Creates a role with the given name and optional description."
   [name & [{:keys [description]}]]
-  (navigate :roles-tab)
+  (navigate :roles-page)
   (browser click :new-role)
   (fill-ajax-form {:new-role-name-text name
                    :new-role-description-text description}
@@ -790,22 +811,23 @@
    selenium browser. Optionally specify a new repository url for Red
    Hat content- if not specified, the default url is kept. Optionally
    specify whether to force the upload."
-  [file-path & [{:keys [repository-url force]}]]
-  (navigate :redhat-subscriptions-tab)
+  [file-path & [{:keys [repository-url]}]]
+  (navigate :redhat-subscriptions-page)
   (when-not (browser isElementPresent :choose-file)
     (browser click :import-manifest))
   (when repository-url
-    (in-place-edit {:redhat-provider-repository-url-text repository-url}))
-  (when force (browser check :force-import-checkbox))
+    (in-place-edit {:redhat-provider-repository-url-text repository-url})
+    (check-for-success))
   (fill-ajax-form {:choose-file file-path}
                   :upload)
-  (check-for-success))
-
+  (check-for-success {:timeout-ms 600000 :refresh? true})) ;using asynchronous notification until the bug https://bugzilla.redhat.com/show_bug.cgi?id=842325 gets fixed.
+  ;(check-for-success))
+  
 (defn manifest-already-uploaded?
   "Returns true if the current organization already has Red Hat
   content uploaded."
   []
-  (navigate :redhat-repositories-tab)
+  (navigate :redhat-repositories-page)
   (browser isElementPresent :subscriptions-items))
 
 (defn create-template
@@ -847,8 +869,7 @@
 (defn enable-redhat-repositories
   "Enable the given list of repos in the current org."
   [repos]
-  (navigate :redhat-repositories-tab)
-  (browser click :enable-repositories-tab)
+  (navigate :redhat-repositories-page)
   (doseq [repo repos]
     (browser check (locators/repo-enable-checkbox repo))))
 
@@ -885,8 +906,9 @@
                     :gpg-key-upload-button)
     (fill-ajax-form {:gpg-key-name-text name
                      :gpg-key-content-text contents}
-                    :gpg-keys-save)))
-  ;(check-for-success))
+                    :gpg-keys-save))
+  (check-for-success))
+ 
 
 (defn remove-gpg-key 
   "Deletes existing GPG keys"
@@ -904,6 +926,23 @@
                              sync-results))
         (promote-content from-env to-env {:products all-prods})))
 
+(defn create-package-filter [name & [{:keys [description]}]]
+  "Creates new Package Filter"
+  (assert (string? name))
+  (navigate :new-package-filter-page)
+    (fill-ajax-form {:new-package-filter-name  name
+                     :new-package-filter-description description}
+                     :save-new-package-filter)
+  (check-for-success))
+
+(defn remove-package-filter 
+  "Deletes existing Package Filter"
+  [package-filter-name]
+  (navigate :named-package-filter-page {:package-filter-name package-filter-name})
+  (browser click :remove-package-filter-key )
+  (browser click :confirmation-yes)
+  (check-for-success))
+
 (defn create-system
   "Creates a system"
    [name & [{:keys [sockets system-arch]}]]
@@ -914,19 +953,19 @@
                     :create-system)
    (check-for-success))
 
-(defn create-system-groups
+(defn create-system-group
   "Creates a system-groups"
-   [name & [{:keys [description ]}]]
+   [name & [{:keys [description]}]]
    (navigate :new-system-groups-page)
    (fill-ajax-form {:system-group-name-text name
                     :system-group-description-text description}
                     :create-system-groups)
    (check-for-success))
 
-(defn add-system-system-groups
+(defn add-to-system-group
   "Adds a system to a System-Group"
-   [name systemgroup]
-   (navigate :named-system-groups-page {:system-group systemgroup})
-   (fill-ajax-form {:system-groups-hostname-toadd name}
-                    :system-groups-add-system)
-   (check-for-success))
+   [system-group system-name]
+   (navigate :named-system-groups-page {:system-group system-group})
+   (fill-ajax-form {:system-groups-hostname-toadd system-name}
+                    :system-groups-add-system))
+

@@ -32,8 +32,8 @@
    environment-link                "//div[contains(@class,'jbreadcrumb')]//a[normalize-space(.)='$1']"
    left-pane-field-list            "xpath=(//div[contains(@class,'left')]//div[contains(@class,'ellipsis')])[$1]"
    link                            "link=$1"
-   notification-close-index        "xpath=(//div[contains(@class,'jnotify-notification-error')]//a[@class='jnotify-close'])[$1]"
-   notification-index              "xpath=(//div[contains(@class,'jnotify-notification-error')])[$1]"
+   notification-close-index        "xpath=(//div[contains(@class,'jnotify-notification')]//a[@class='jnotify-close'])[$1]"
+   notification-index              "xpath=(//div[contains(@class,'jnotify-notification')])[$1]"
    org-switcher                    "//div[@id='orgbox']//a[.='$1']"
    permission-org                  "//li[@class='slide_link' and starts-with(normalize-space(.),'$1')]"
    plus-icon                       "//li[.='$1']//span[contains(@class,'ui-icon-plus')]"
@@ -91,10 +91,13 @@
    :search-clear-the-search "search_clear"
    :search-submit           "//button[@form='search_form']"
    ;;main banner
-   :account                 "//a[@class='header-widget' and contains(@href,'users')]"
-   :log-out                 "//a[normalize-space(.)='Logout']"
-   :org-switcher            "switcherButton"
-   :active-org              "//*[@id='switcherButton']"})
+   :account             "//a[@class='header-widget' and contains(@href,'users')]"
+   :log-out             "//a[normalize-space(.)='Logout']"
+   :org-switcher        "switcherButton"
+   :active-org          "//*[@id='switcherButton']"
+   ;;inside the org switcher
+   :manage-organizations-link  "manage_orgs"
+   })
 
 (def all-tabs
   (tabs
@@ -141,25 +144,22 @@
 
 (def organizations
   {:new-organization          "//a[@id='new']"
-   :create-organization       "organization_save"
-   :org-name-text             (textbox "name")
-   :org-description-text      (textbox "description")
+   :create-organization       "organization_submit"
+   :org-name-text             "organization[name]"
+   :org-description-text      "organization[description]"
    :org-environments          (link "Environments")
    :edit-organization         (link "Edit")
    :remove-organization       (link "Remove Organization")
-   :org-description-text-edit "organization[description]"
-   :org-initial-env-name-text "envname"
-   :org-initial-env-desc-text "envdescription"})
+   :org-initial-env-name-text "environment[name]"
+   :org-initial-env-desc-text "environment[description]"})
 
 (def environments
-  {:env-name-text             (textbox "name")
-   :env-description-text      (textbox "description")
-   :prior-environment         "//select[@id='prior']"
+  {:env-name-text             "kt_environment[name]"
+   :env-description-text      "kt_environment[description]"
+   :prior-environment         "kt_environment[prior]"
    :create-environment        "//input[@value='Create']"
    :new-environment           "//div[normalize-space(.)='Add New Environment']"
    :remove-environment        (link "Remove Environment")
-   :env-name-text-edit        "kt_environment[name]"
-   :env-description-text-edit "kt_environment[description]"
    :env-prior-select-edit     "kt_environment[prior]" })
 
 (def providers
@@ -168,7 +168,7 @@
    :provider-description-text           "provider[description]"
    :provider-repository-url-text        "provider[repository_url]"
    :provider-cert-text                  (textbox "provider[certificate_attributes][contents]")
-   :provider-create-save                "provider_save"
+   :provider-create-save                "provider_submit"
    :remove-provider                     (link "Remove Provider")
    :subscriptions                       (link "Subscriptions")
    :import-manifest                     "new"
@@ -176,7 +176,6 @@
    :choose-file                         "provider_contents"
    :upload                              "provider_submit"
    :force-import-checkbox               "force_import"
-   :enable-repositories-tab             "//a[normalize-space(.)='Enable Repositories']"
    :products-and-repositories           "//nav[contains(@class,'subnav')]//a[contains(.,'Products')]"
                 
    ;;add product
@@ -203,8 +202,18 @@
    :gpg-keys                            "//a[.='GPG Keys']"
    :gpg-keys-save                       "save_gpg_key"
    :new-gpg-key                         "new"
-   :remove-gpg-key                      (link "Remove GPG Key")})
+   :remove-gpg-key                      (link "Remove GPG Key")
 
+
+   ;;Package Filters
+   :create-new-package-filter                (link "+ New Filter")
+   :new-package-filter-name                  "filter[name]"
+   :new-package-filter-description           "filter[description]"
+   :save-new-package-filter                  "filter_submit"
+   :remove-package-filter-key                (link "Remove Filter")})
+   
+   
+   
 (def promotions
   {:products-category           (promotion-content-category "products")
    :expand-path                 "path-collapsed"
@@ -218,7 +227,7 @@
    :promote-to-next-environment "//div[@id='promote_changeset' and not(contains(@class,'disabled'))]"
    :promotion-empty-list        "//div[@id='left_accordion']//ul[contains(.,'available for promotion')]"
    :new-promotion-changeset     "//a[contains(.,'New Promotion Changeset')]"
-   :changeset-name-text         (textbox "name")
+   :changeset-name-text         "changeset[name]"
    :save-changeset              "save_changeset_button"
    :changeset-content           "//div[contains(@class,'slider_two') and contains(@class,'has_content')]"})
 
@@ -228,18 +237,16 @@
    :user-default-org-select     "org_id[org_id]"
    :save-user-environment       "update_user"
    :new-user                    "//a[@id='new']"
-   :new-user-username-text      "username_field"
-   :new-user-password-text      "password_field"
-   :new-user-confirm-text       "confirm_field"
-   :new-user-default-org        "org_id[org_id]"
-   :new-user-email              "email_field"
+   :user-username-text          "user[username]"
+   :user-password-text          "password_field" ; use id attr 
+   :user-confirm-text           "confirm_field"  ; for these two (name
+                                                 ; is the same)
+   :user-default-org            "org_id[org_id]"
+   :user-email-text             "user[email]"
    :save-user                   "save_user"
    :remove-user                 (link "Remove User")
    :enable-inline-help-checkbox "user[helptips_enabled]"
    :clear-disabled-helptips     "clear_helptips"
-   :change-password-text        "password_field"
-   :confirm-password-text       "confirm_field"
-   :user-email-text             "user[email]"
    :save-roles                  "save_roles"
    :add-all                     (link "Add all")
    :password-conflict           "//div[@id='password_conflict' and string-length(.)>0]"})
@@ -255,7 +262,7 @@
 
 (def systems
   {:new-system                      "new"
-   :create-system                   "system_save"
+   :create-system                   "system_submit"
    :system-name-text                "system[name]"
    :system-sockets-text             "system[sockets]"
    :system-arch-select              "arch[arch_id]"
@@ -356,9 +363,9 @@
   are multiple environment paths, and you wish to select Library,
   'next' is required."
   [name & [next]]
-  (let [prefix "//a[normalize-space(.)='%1$s' and contains(@class, 'path_link')]"]
+  (let [prefix "//a[normalize-space(.)='%s' and contains(@class, 'path_link')]"]
     (Element. (format 
-               (str prefix (if next "/../../..//a[normalize-space(.)='%1$s']" ""))
+               (str prefix (if next "/../../..//a[normalize-space(.)='%s']" ""))
                name next))))
 
 (defn inactive-edit-field
@@ -440,13 +447,13 @@
    
      [:content-tab [] (browser mouseOver :content)
       [:subscriptions-tab [] (browser mouseOver :subscriptions)
-       [:redhat-subscriptions-tab [] (browser clickAndWait :red-hat-subscriptions)]
+       [:redhat-subscriptions-page [] (browser clickAndWait :red-hat-subscriptions)]
        [:activation-keys-page [] (browser clickAndWait :activation-keys)
         [:named-activation-key-page [activation-key-name]
          (choose-left-pane (left-pane-item activation-key-name))]
         [:new-activation-key-page [] (browser click :new-activation-key)]]]
       [:repositories-tab [] (browser mouseOver :repositories)
-       [:custom-content-repositories-tab [] (browser clickAndWait :custom-content-repositories)
+       [:custom-content-repositories-page [] (browser clickAndWait :custom-content-repositories)
         [:new-provider-page [] (browser click :new-provider)]
         [:named-provider-page [provider-name] (choose-left-pane (left-pane-item provider-name))
          [:provider-products-repos-page [] (->browser (click :products-and-repositories)
@@ -455,10 +462,13 @@
           [:named-repo-page [product-name repo-name] (browser click (editable repo-name))]]
          [:provider-details-page [] (browser click :details)]
          [:provider-subscriptions-page [] (browser click :subscriptions)]]]
-       [:redhat-repositories-tab [] (browser clickAndWait :red-hat-repositories)]
-       [:gpg-keys-tab [] (browser clickAndWait :gpg-keys)
+       [:redhat-repositories-page [] (browser clickAndWait :red-hat-repositories)]
+       [:gpg-keys-page [] (browser clickAndWait :gpg-keys)
         [:new-gpg-key-page [] (browser click :new-gpg-key)]
-        [:named-gpgkey-page [gpg-key-name] (choose-left-pane (left-pane-item gpg-key-name))]]]
+        [:named-gpgkey-page [gpg-key-name] (choose-left-pane (left-pane-item gpg-key-name))]]
+       [:package-filters-page [] (browser clickAndWait :package-filters)
+        [:new-package-filter-page [] (browser click :create-new-package-filter)]
+        [:named-package-filter-page [package-filter-name] (choose-left-pane (left-pane-item package-filter-name))]]]
       [:sync-management-page [] (browser mouseOver :sync-management)
        [:sync-status-page [] (browser clickAndWait :sync-status)]
        [:sync-plans-page [] (browser clickAndWait :sync-plans)
@@ -466,6 +476,7 @@
          (choose-left-pane (left-pane-item sync-plan-name))]
         [:new-sync-plan-page [] (browser click :new-sync-plan)]]
        [:sync-schedule-page [] (browser clickAndWait :sync-schedule)]]
+      [:changeset-promotion-history-page [] (browser clickAndWait :changeset-promotion-history)]
       [:changeset-promotions-tab [] (browser mouseOver :changeset-promotions)
        [:promotions-page [] (browser clickAndWait :promotions)
         [:named-environment-promotions-page [env-name next-env-name]
@@ -480,7 +491,7 @@
        [:new-system-page [] (browser click :new-system)]
        [:system-subscriptions-page [system-name] (choose-left-pane (left-pane-item system-name))
         [:named-systems-page [] (browser click :details)]]]
-      [:system-groups-tab [] (browser clickAndWait :system-groups)
+      [:system-groups-page [] (browser clickAndWait :system-groups)
        [:new-system-groups-page [] (browser click :new-system-groups)]
        [:system-groups-page [system-group] (choose-left-pane (left-pane-item system-group))
         [:named-system-groups-page [] (browser click :systems-sg)]]]
@@ -488,24 +499,26 @@
        [:systems-environment-page [env-name] (select-environment-widget env-name)
         [:named-system-environment-page [system-name]
          (choose-left-pane (left-pane-item system-name))]]]]
-     
+     [:organizations-page-via-org-switcher [] (browser click :org-switcher)
+      [:organizations-link-via-org-switcher [] (browser clickAndWait :manage-organizations-link)
+       [:new-organization-page-via-org-switcher [] (browser click :new-organization)]]]
      [:administer-tab [] (browser mouseOver :administer)
-      [:users-tab [] (browser clickAndWait :users)
+      [:users-page [] (browser clickAndWait :users)
        [:named-user-page [username] (choose-left-pane (user username))
         [:user-environments-page [] (browser click :environments-subsubtab)]
         [:user-roles-permissions-page [] (browser click :roles-subsubtab)]]]
-      [:roles-tab [] (browser clickAndWait :roles)
+      [:roles-page [] (browser clickAndWait :roles)
        [:named-role-page [role-name] (choose-left-pane (left-pane-item role-name))
         [:named-role-users-page [] (browser click :role-users)]
         [:named-role-permissions-page [] (browser click :role-permissions)]]]
-      [:manage-organizations-tab [] (browser clickAndWait :manage-organizations)
+      [:manage-organizations-page [] (browser clickAndWait :manage-organizations)
        [:new-organization-page [] (browser click :new-organization)]
        [:named-organization-page [org-name] (choose-left-pane (left-pane-item org-name)) 
         [:new-environment-page [] (browser click :new-environment)]
         [:named-environment-page [env-name] (browser click (environment-link env-name))]]]]])))
 
-(def tab-list '(:redhat-repositories-tab 
-                :roles-tab :users-tab 
+(def tab-list '(:redhat-repositories-page 
+                :roles-page :users-page 
                 :systems-all-page
                 :activation-keys-page
                 :systems-by-environment-page))
