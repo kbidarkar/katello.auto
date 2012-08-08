@@ -11,6 +11,7 @@
 
 ;; Functions
 
+;; Functional Programming
 
 (defn search-results-valid?
   "Returns a predicate that will be true when the search results both
