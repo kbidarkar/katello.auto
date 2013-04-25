@@ -87,24 +87,17 @@
   [{:keys [name description published-names org] :as cv}  updated]
   (let [[to-remove to-add _] (data/diff cv updated)]
     
-  ;;Adds Products and Repositories to a content-view  
+  ;;Adds both Products and Repositories to a content-view  
     (when (:content to-add)
       (nav/go-to cv)
-      ;;(browser click ::content-tab)
-      (browser getEval ::sel-products)
-  ;; Composite Content Views are made up of other published views...
-      (if (not (nil? (:published-names to-add)))
-        (do
-          (doseq [publish-name published-names]
-            (sel/->browser  (click (composite-view-name publish-name))
-                            (click ::update-component_view))))
-  ;; Non-composite Content Views are made up of products and/or repositories.
-        (do
-          (sel/->browser (mouseUp (-> (:content to-add) :name product-or-repository))
-                         (click ::add-product-btn)
-                         (click ::update-content))))
-      (notification/check-for-success))
-    
+      (browser click ::content-tab) 
+      (doseq [content (:content to-add)]
+        (sel/->browser (mouseUp (-> content :name product-or-repository))
+                       (click ::add-product-btn)
+                       (click ::update-content))
+        (notification/check-for-success)))
+  
+  ;;Adding published names to a content-view  
     (when (not (nil? (:published-names to-add)))
       (browser click ::views-tab)
       (browser click ::publish-button)
@@ -114,24 +107,26 @@
                             ::publish-new))
       (notification/check-for-success {:timeout-ms (* 20 60 1000)}))
     
-   ;; Need to combine products and repository section, but how do we explicitly tell
-    ;;which block to enter for product and repo.
-   ;; meant for removing product 
-    (when (:content to-remove)
-      (nav/go-to cv)
-      (browser click ::content-tab)
-      (sel/->browser  (click ::remove-product)
-                      (click ::update-content))
-      (notification/check-for-success))
    
-   ;; meant for removing repository 
     (when (:content to-remove)
       (nav/go-to cv)
       (browser click ::content-tab)
-      (sel/->browser   (click ::toggle-products)
-                       (click (remove-repository  (-> (:content to-remove) :name)))
-                       (click ::update-content))
-      (notification/check-for-success))
+      ;; meant for removing products 
+      (when (instance? katello.Product (:content to-remove))
+        (doseq [prdouct (:content to-remove)]
+      ;; need to add locator for remove-product-by-name, currently it works if only one product exists.
+      ;;  similar to remove-repository, I tried but looks like I would need to do few trial and errors :)   
+          (sel/->browser  (click (remove-product-by-name (-> (:content to-remove) :name)))
+                          (click ::update-content))
+          (notification/check-for-success)))
+   
+      ;; meant for removing repository 
+      (when (instance? katello.Repository (:content to-remove))
+        (doseq [repo (:content to-remove)]
+          (sel/->browser   (click ::toggle-products)
+                           (click (remove-repository  (-> (:content to-remove) :name)))
+                           (click ::update-content))
+          (notification/check-for-success))))
     
    ;;Updating the details page.
     (when (or (:name to-add) (:description to-add))
