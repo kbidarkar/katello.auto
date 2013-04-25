@@ -62,7 +62,7 @@
 (nav/defpages (common/pages)
   [::page
    [::new-page [] (browser click ::new)]
-   [::named-page [cv] (nav/choose-left-pane (:name cv))
+   [::named-page [cv] (nav/choose-left-pane cv)
     [::details-page [] (browser click ::details-tab)]]])
 
 ;; Tasks
@@ -99,6 +99,7 @@
   
   ;;Adding published names to a content-view  
     (when (not (nil? (:published-names to-add)))
+      (nav/go-to cv)
       (browser click ::views-tab)
       (browser click ::publish-button)
       (doseq [publish-name published-names]
@@ -116,15 +117,16 @@
         (doseq [prdouct (:content to-remove)]
       ;; need to add locator for remove-product-by-name, currently it works if only one product exists.
       ;;  similar to remove-repository, I tried but looks like I would need to do few trial and errors :)   
-          (sel/->browser  (click (remove-product-by-name (-> (:content to-remove) :name)))
-                          (click ::update-content))
+      ;;    (sel/->browser  (click (remove-product-by-name (-> product :name)))
+            (sel/->browser (click ::remove-product)
+                           (click ::update-content))
           (notification/check-for-success)))
    
       ;; meant for removing repository 
       (when (instance? katello.Repository (:content to-remove))
         (doseq [repo (:content to-remove)]
           (sel/->browser   (click ::toggle-products)
-                           (click (remove-repository  (-> (:content to-remove) :name)))
+                           (click (remove-repository  (-> repo :name)))
                            (click ::update-content))
           (notification/check-for-success))))
     
