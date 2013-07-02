@@ -40,8 +40,8 @@
    :debug   ::debug-rpms-page
    :beta    ::beta-rpms-page})
 
-  #_(def enable-redhat-repos 
-             {:rh-allrepos '(["Red Hat CloudForms System Engine RPMs x86_64 6.4"
+(def enable-redhat-repos 
+            {:rh-allrepos '(["Red Hat CloudForms System Engine RPMs x86_64 6.4"
                               "Red Hat CloudForms System Engine RPMs x86_64 6Server"] 
                              ["Red Hat CloudForms Tools for RHEL 6 RPMs i386 6.4"
                               "Red Hat CloudForms Tools for RHEL 6 RPMs i386 6Server"
