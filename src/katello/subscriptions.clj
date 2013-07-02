@@ -41,12 +41,12 @@
 (declare local-clone-source)
 
 (defn download-original-once [redhat-manifest?]
-  (defonce local-clone-source (let [dest "/home/kedar/Downloads/manifest_6.zip" #_(manifest/new-tmp-loc)
+  (defonce local-clone-source (let [dest (manifest/new-tmp-loc)
                                     manifest-details (if redhat-manifest? {:manifest-url (@config :redhat-manifest-url)
                                                                            :repo-url     (@config :redhat-repo-url)}
                                                                           {:manifest-url (@config :fake-manifest-url)
                                                                            :repo-url     (@config :fake-repo-url)})]
-                                #_(io/copy (-> manifest-details :manifest-url java.net.URL. io/input-stream)
+                                (io/copy (-> manifest-details :manifest-url java.net.URL. io/input-stream)
                                          (java.io.File. dest))
                                 (kt/newManifest {:file-path dest
                                                  :url (manifest-details :repo-url)
