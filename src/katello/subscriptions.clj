@@ -1,13 +1,18 @@
 (ns katello.subscriptions
-  (:require [com.redhat.qe.auto.selenium.selenium :as sel :refer [browser]]
+  (:require [clojure.java.io :as io]
+            [com.redhat.qe.auto.selenium.selenium :as sel :refer [browser]]
             [katello :as kt]
             (katello [ui :as ui]
                      [rest :as rest]
                      [navigation :as nav]
+                     [tasks :refer [with-unique]]
+                     [conf :refer [config with-org]]
                      [tasks :as tasks]
                      [notifications :as notification]
                      [ui-common :as common]
-                     [manifest :as manifest])))
+                     [manifest :as manifest]
+                     [sync-management :as sync]
+                     [rh-repositories :as rh-repos])))
 
 ;; Locators
 
@@ -32,6 +37,46 @@
   [::import-history-page])  
 
 ;; Tasks
+
+(declare local-clone-source)
+
+(defn download-original-once [redhat-manifest?]
+  (defonce local-clone-source (let [dest "/home/kedar/Downloads/manifest_6.zip" #_(manifest/new-tmp-loc)
+                                    manifest-details (if redhat-manifest? {:manifest-url (@config :redhat-manifest-url)
+                                                                           :repo-url     (@config :redhat-repo-url)}
+                                                                          {:manifest-url (@config :fake-manifest-url)
+                                                                           :repo-url     (@config :fake-repo-url)})]
+                                #_(io/copy (-> manifest-details :manifest-url java.net.URL. io/input-stream)
+                                         (java.io.File. dest))
+                                (kt/newManifest {:file-path dest
+                                                 :url (manifest-details :repo-url)
+                                                 :provider kt/red-hat-provider}))))
+
+(defn prepare-org
+  "Clones a manifest, uploads it to the given org (via api), and then
+   enables and syncs the given repos"
+  [repos]
+  (let [manifest (do (when-not (bound? #'local-clone-source)
+                               (download-original-once (-> repos first :reposet)))
+                             local-clone-source) ]
+    (rest/create (assoc manifest :provider (-> repos first kt/provider )))
+    (when (-> repos first :reposet)
+      (rh-repos/enable-disable-redhat-repos repos))
+    (sync/perform-sync repos)))
+
+(defn setup-org [envs repos]
+  "Adds org to all the repos in the list, creates org and the envs
+   chains"
+  (let [org (-> envs first :org)
+        repos (for [r repos]
+                (if (-> repos first :reposet)
+                  (update-in r [:reposet :product :provider] assoc :org org)
+                  (update-in r [:product :provider] assoc :org org)))]
+    (rest/create org)
+    (doseq [e (kt/chain envs)]
+      (rest/create e))
+    (prepare-org repos)))
+
 
 (defn- upload-manifest
   "Uploads a subscription manifest from the filesystem local to the
