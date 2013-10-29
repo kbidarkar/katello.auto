@@ -119,7 +119,7 @@
     katello.tasks/uniqueify 0
     katello.tasks/uniques 0
     katello.conf/client-defs 0
-    katello.setup/conf-selenium 0
+   ;; katello.setup/conf-selenium 0
     katello.rest/read-json-safe 0
     katello.rest/get-id 1
     katello/chain 1
